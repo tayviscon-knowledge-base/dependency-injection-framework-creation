@@ -12,6 +12,9 @@ import java.util.List;
  */
 public class ExamCheatingService {
 
+    private PrankerService prankerService = new DirectorCallPrankerService();
+    private MessageSenderService messageSenderService = new PhoneNumberMessageSenderService();
+
     /**
      * Основной метод сервиса.
      *
@@ -19,8 +22,8 @@ public class ExamCheatingService {
      * @param students студенты, которым необходимо разослать ответы.
      */
     public void start(Teacher teacher, List<Student> students) {
-        // todo отвлечь преподавателя
-        // todo разослать студентам ответы
+        prankerService.prank(teacher);
+        messageSenderService.send(students);
     }
 
 }
