@@ -334,3 +334,178 @@ public class ExamCheatingService {
 После этого объектно-ориентированное программирование перешло в следующий этап эволюции и во многие проектах начали
 писать инфраструктуру, ядром которой являлся некий класс `ObjectFactory`. Этот класс должен был быть `Singleton` и
 должен был быть доступен из любой точки приложения, чтобы разработчик мог попросить у него создать объект какого-либо типа. 
+
+### 4.2 ПИШЕМ СВОЮ ФАБРИКУ ОБЪЕКТОВ
+`ObjectFactory` это еще далеко не инверсия контроля, однако, чтобы приблизиться к пониманию того, как реализованы
+современные `Dependency Injection` фреймворки необходимо написать собственную фабрику объектов и проанализировать
+недостатки этого инфраструктурного решения.
+
+Начнем свою реализацию с написания класса `ObjectFactory`, который должен быть реализован, согласно паттерну `Singleton`
+и должен иметь возможность создавать объекты, в зависимости от запрашиваемого класса.
+
+```java
+/**
+ * Фабрика объектов.
+ *
+ * @author Tyomych Tovkach.
+ */
+public class ObjectFactory {
+
+    /**
+     * Экземпляр класса ObjectFactory.
+     */
+    private static ObjectFactory instance = new ObjectFactory();
+
+    /**
+     * Метод получения экземпляра класса ObjectFactory.
+     *
+     * @return экземпляр класса ObjectFactory.
+     */
+    public static ObjectFactory getInstance() {
+        return instance;
+    }
+
+    /**
+     * Конструктор класса.
+     */
+    private ObjectFactory() {
+    }
+
+    /**
+     * Метод, создающий объекты в зависимости от типа класса, пришедшего в параметре.
+     *
+     * @param type класс.
+     * @param <T>  тип класса.
+     * @return объект типа T.
+     */
+    public <T> T createObject(Class<T> type) {
+        //TODO: написать логику метода.
+    }
+
+}
+```
+
+Давайте теперь посмотри, как этот класс будет использоваться, на примере нашего `ExamCheatingService`.
+ ```java
+/**
+ * Сервис, помогающий студентам списывать на экзамене.
+ *
+ * @author Tyomych Tovkach
+ */
+public class ExamCheatingService {
+
+    private PrankerService prankerService
+        = ObjectFactory.getInstance().createObject(PrankerService.class);
+    
+    private MessageSenderService messageSenderService
+        = ObjectFactory.getInstance().createObject(MessageSenderService.class);
+
+    /**
+     * Основной метод сервиса.
+     *
+     * @param teacher  преподаватель, которого необходимо отвлечь.
+     * @param students студенты, которым необходимо разослать ответы.
+     */
+    public void start(Teacher teacher, List<Student> students) {
+        prankerService.prank(teacher);
+        messageSenderService.send(students);
+    }
+
+}
+```
+
+Как мы можем увидеть, наш код стал чище, так как теперь наш `ExamCheatingService` вообще ничего не знает ни про
+`PrankerService`, ни про `MessageSenderService`, а знает лишь то, что они ему нужны, но логика по выбору конкретной
+имплементации интерфейса, ее созданию и настройке скрыта от сервиса внутри фабрики объектов.
+
+> [!NOTE]
+> **Стоит отметить, что в большинстве случаев, в параметре метода `createObject` будет приходить интерфейс, однако лучше
+> предусмотреть логику, когда разработчик сможет указать конкретный класс.**
+
+Давайте вернемся к реализации нашего метода `createObject` в классе `ObjectFactory`, где сделаем проверку:
+Если пришедший в параметре метода `type` является интерфейсом, то его необходимо заменить соответствующей имплементацией.
+Однако давайте задумаемся над тем, откуда `ObjectFactory` будет узнавать, какую реализацию интерфейса необходимо
+создавать. Для реализации этой функциональности, согласно `Single Responsibility` принципу, предлагается выделить
+интерфейс `Config`. Классы имплементирующее этот интерфейс должны будут, на основании переданного в параметре интерфейса,
+возвращать его реализацию.
+
+```java
+/**
+ * Интерфейс конфигурации приложения.
+ *
+ * @author Tyomych Tovkach.
+ */
+public interface Config {
+
+    /**
+     * Метод получения класса, который реализует заданный интерфейс.
+     *
+     * @param ifc интерфейс.
+     * @param <T> тип интерфейса.
+     * @return класс, реализующий интерфейс.
+     */
+    <T> Class<? extends T> getImplClass(Class<T> ifc);
+
+}
+```
+
+Также сразу напишем его реализацию `JavaConfig`, которая будет конфигурировать приложение на основании Java кода.
+> [!NOTE]
+> **Стоит отметить, что в большинстве случаев имплементация у интерфейсов будет одна, однако лучше предусмотреть
+> возможность того, что у одного интерфейса может быть несколько имплементаций.** Давайте для начала исходит из
+> предположения, что у одного интерфейса - одна имплементация, но лишь для того, чтобы в дальнейшем это предположение
+> нарушить и увидеть, как у нас изменится наш метод `getImplClass`.
+
+Для реализации класса `JavaConfig` нам понадобится `Reflection API` и мы активно будем использовать, подключенную нами
+библиотеку:
+
+```xml
+<dependency>
+    <groupId>org.reflections</groupId>
+    <artifactId>reflections</artifactId>
+    <version>0.10.2</version>
+</dependency>
+```
+
+Нам понадобиться класс `org.reflections.Reflections`, который расширяет возможности, существующего в Java,
+`Reflection API`. Для создания объекта этого класса нам необходимо передать в конструкторе пакет, с которого необходимо
+начать сканирование. Тогда в методе `getImplClass` нам необходимо будет получить все подтипы в иерархии переданного
+интерфейса и если их количество не равно единице, то выбросить соответствующее исключение. Если же у интерфейса
+существует лишь одна имплементация, то ее необходимо вернуть. Давайте, наконец, посмотрим на наш класс `JavaConfig`:
+
+```java
+/**
+ * Конфигурации приложения на основании Java-кода.
+ *
+ * @author Tyomych Tovkach.
+ */
+public class JavaConfig implements Config {
+
+    private Reflections scanner;
+
+    /**
+     * Конструктор класса.
+     *
+     * @param packageToScan пакет, с которого необходимо начинать сканирование.
+     */
+    public JavaConfig(String packageToScan) {
+        this.scanner = new Reflections(packageToScan);
+    }
+
+    /**
+     * Метод получения класса, который реализует заданный интерфейс.
+     *
+     * @param ifc интерфейс.
+     * @param <T> тип интерфейса.
+     * @return класс, реализующий интерфейс.
+     */
+    @Override
+    public <T> Class<? extends T> getImplClass(Class<T> ifc) {
+        Set<Class<? extends T>> classes = scanner.getSubTypesOf(ifc);
+        if (classes.size() != 1) {
+            throw new RuntimeException(ifc + " has zero or more than one implementations");
+        }
+        return classes.iterator().next();
+    }
+}
+```
