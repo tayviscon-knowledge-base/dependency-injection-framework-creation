@@ -2,6 +2,7 @@ package ru.tayviscon.knowledge.base.service;
 
 import ru.tayviscon.knowledge.base.domain.model.Student;
 import ru.tayviscon.knowledge.base.domain.model.Teacher;
+import ru.tayviscon.knowledge.base.infrastructure.ObjectFactory;
 
 import java.util.List;
 
@@ -12,8 +13,11 @@ import java.util.List;
  */
 public class ExamCheatingService {
 
-    private PrankerService prankerService = new DirectorCallPrankerService();
-    private MessageSenderService messageSenderService = new PhoneNumberMessageSenderService();
+    private PrankerService prankerService
+        = ObjectFactory.getInstance().createObject(PrankerService.class);
+
+    private MessageSenderService messageSenderService
+        = ObjectFactory.getInstance().createObject(MessageSenderService.class);
 
     /**
      * Основной метод сервиса.
